@@ -2,8 +2,13 @@ from smartHomeElement import SmartHomeElement
 from typing import List
 
 class SmartHomeScheduler:
-    def __init__(self, elements: List[SmartHomeElement]):
+    def __init__(self,
+                 elements: List[SmartHomeElement],
+                 prices: List[float],
+                 battery_capacity: float):
         self.elements = elements
+        self.prices = prices
+        self.battery_capacity = battery_capacity
 
     def schedule_day_ahead(self,
                            energy_demand: List[float],
@@ -28,21 +33,6 @@ class SmartHomeScheduler:
 
         return scheduled_elements
 
-    def optimize_schedule(self,
-                          day_ahead_prices: List[float],
-                          energy_demand: List[float]) -> List[SmartHomeElement]:
-
-        scheduled_elements = self.schedule_day_ahead(day_ahead_prices, energy_demand)
-        for hour in range(len(day_ahead_prices)):
-            if scheduled_elements[hour] is None:
-                continue
-            available_elements = [elem for elem in self.elements if elem.time_window[0] <= hour < elem.time_window[1] and elem.interruptible]
-            if not available_elements:
-                continue
-            cheapest_element = min(available_elements, key=lambda elem: elem.get_price(hour))
-            if cheapest_element.get_price(hour) < scheduled_elements[hour].get_price(hour):
-                scheduled_elements[hour] = cheapest_element
-        return scheduled_elements
 
     def _get_schedulable_elements(self,
                                   current_time: int,
@@ -65,4 +55,55 @@ class SmartHomeScheduler:
                         available_budget -= element.get_price()
 
         return schedulable_elements
+
+    def optimize_daily_price(self, pv_production: List[float], buy_prices: List[float]) -> List[float]:
+
+        # Calculate the net energy demand by subtracting PV production from energy demand
+        net_demand = []
+        for i in range(24):
+            demand = sum([elem.get_energy_demand(i) for elem in self.elements])
+            pv_output = pv_production[i]
+            net_demand.append(demand - pv_output)
+
+        # Initialize battery state; full battery beginning of day
+        battery_state = 1
+
+        # Create a list to store the energy sources for each hour of the day
+        # 0 = grid, 1 = battery, 2 = PV
+        energy_sources = []
+        grid_capacity_demand = []
+
+        # Calculate the energy sources for each hour of the day
+        for i in range(24):
+            demand = net_demand[i]
+            buy_price = buy_prices[i]
+
+            # Check if PV production is greater than demand
+            if pv_production[i] >= demand:
+                # PV production is greater than demand, so use excess to charge the battery
+                if battery_state < self.battery_capacity:
+                    energy_sources.append(2)
+                    battery_state = min(battery_state + (pv_production[i] - demand), self.battery_capacity)
+                else:
+                    ## sell excess energy if we have full battery
+                    #@TODO: sell energy
+                    energy_sources.append(2)
+            else:
+                # PV production is less than demand
+                remaining_demand = demand - pv_production[i]
+                # Check if the battery has enough energy to supply the remaining demand
+                if battery_state >= remaining_demand:
+                    # Battery has enough energy, so use it to supply the remaining demand
+                    energy_sources.append(1)
+                    battery_state = battery_state - remaining_demand
+                else:
+                    # Battery doesn't have enough energy, so buy from the grid
+                    energy_sources.append(0)
+                    grid_capacity_demand.append(remaining_demand * buy_price)
+
+        # Calculate the total cost of energy for the day
+        total_cost = sum(grid_capacity_demand)
+
+        return energy_sources, total_cost
+
 
