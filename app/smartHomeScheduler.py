@@ -31,6 +31,8 @@ class SmartHomeScheduler:
             # add scheduled elements for the hour to the list of scheduled elements
             scheduled_elements[hour] = schedulable_elements
 
+        #@TODO: add following runs if deviced were not planned during the first run
+
         return scheduled_elements
 
 
@@ -70,7 +72,7 @@ class SmartHomeScheduler:
 
         # Create a list to store the energy sources for each hour of the day
         # 0 = grid, 1 = battery, 2 = PV
-        energy_sources = []
+        energy_sources = [] #@TODO: chagne these to lists or better structure to keep values about how much energy goes from each source
         grid_capacity_demand = []
 
         # Calculate the energy sources for each hour of the day
